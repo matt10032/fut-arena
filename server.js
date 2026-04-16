@@ -445,8 +445,27 @@ app.post('/api/chat/:matchId', (req, res) => {
 // ============== RATINGS ==============
 app.post('/api/ratings', (req, res) => {
   const { team_id, score, by_user } = req.body;
+  if(!team_id||!score||!by_user) return res.status(400).json({error:'Données manquantes'});
+  // Check if user owns the team
+  const team = db.prepare('SELECT owner_id FROM teams WHERE id=?').get(team_id);
+  if(!team) return res.status(404).json({error:'Équipe introuvable'});
+  const user = db.prepare('SELECT id FROM users WHERE pseudo=?').get(by_user);
+  if(user && team.owner_id === user.id) return res.status(403).json({error:'Tu ne peux pas noter ta propre équipe'});
+  // Check if already rated
+  const existing = db.prepare('SELECT id FROM ratings WHERE team_id=? AND by_user=?').get(team_id, by_user);
+  if(existing){
+    // Update instead of insert (allow changing the note)
+    db.prepare('UPDATE ratings SET score=?, created_at=CURRENT_TIMESTAMP WHERE id=?').run(score, existing.id);
+    return res.json({ok:true, updated:true});
+  }
   db.prepare('INSERT INTO ratings (team_id, score, by_user) VALUES (?,?,?)').run(team_id, score, by_user);
-  res.json({ok:true});
+  res.json({ok:true, new:true});
+});
+
+app.get('/api/ratings/my', (req, res) => {
+  const { team_id, by_user } = req.query;
+  const r = db.prepare('SELECT score FROM ratings WHERE team_id=? AND by_user=?').get(team_id, by_user);
+  res.json({score: r?.score || null});
 });
 
 // ============== TROPHIES ==============
